@@ -36,17 +36,6 @@
     <input type="text" name="DATABASE_PORT" id="DATABASE_PORT"
         value="{{ existing_values.DATABASE_PORT|default:'' }}"><br>
 
-    <label for="WANDB_API_KEY">WANDB_API_KEY</label>
-    <input type="text" name="WANDB_API_KEY" id="WANDB_API_KEY"
-        value="{{ existing_values.WANDB_API_KEY|default:'' }}"><br>
-
-    <label for="HF_API_KEY">HF_API_KEY</label>
-    <input type="text" name="HF_API_KEY" id="HF_API_KEY" value="{{ existing_values.HF_API_KEY|default:'' }}"><br>
-
-    <label for="OPENAI_API_KEY">OPENAI_API_KEY</label>
-    <input type="text" name="OPENAI_API_KEY" id="OPENAI_API_KEY"
-        value="{{ existing_values.OPENAI_API_KEY|default:'' }}"><br>
-
     <button type="submit">Save Settings</button>
 </form>
 

@@ -23,8 +23,7 @@ def settings_view(request):
             key: request.POST.get(key, "").strip() or existing_values.get(key, "")
             for key in [
                 'DATABASE_NAME', 'DATABASE_USER', 'DATABASE_PASSWORD',
-                'DATABASE_HOST', 'DATABASE_PORT', 'WANDB_API_KEY',
-                'HF_API_KEY', 'OPENAI_API_KEY'
+                'DATABASE_HOST', 'DATABASE_PORT'
             ]
         }
 
