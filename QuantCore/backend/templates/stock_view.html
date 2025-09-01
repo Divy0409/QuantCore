@@ -1,15 +1,17 @@
 {% extends 'base.html' %}
 
+{% load static %}
+
 {% block content %}
 <head>
     <title>Stock Chart</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <h2>Stock Price Viewer</h2>
+    <h2>📈 Stock Price Viewer</h2>
     <form id="stockForm">
         <label for="ticker">Ticker:</label>
-        <input type="text" id="ticker" name="ticker" required>
+        <input type="text" id="ticker" name="ticker" placeholder="Enter stock ticker" required>
         <label for="interval">Interval:</label>
         <select id="interval" name="interval">
             <option value="daily">Daily</option>
@@ -21,13 +23,15 @@
         <button type="submit">Search</button>
     </form>
 
-    <div>
+    <div class="chart-container">
+        <h2 id="chartTitle"></h2>
         <canvas id="stockChart" width="800" height="400"></canvas>
     </div>
 
     <script>
         const form = document.getElementById('stockForm');
         const ctx = document.getElementById('stockChart').getContext('2d');
+        const chartTitleElem = document.getElementById('chartTitle');
         let chart = null;
 
         form.addEventListener('submit', async function(e) {
@@ -46,8 +50,14 @@
                     alert(data.error);
                     return;
                 }
-                chartTitle = `${data.company_name} (${data.company_name}) - ${data.interval.toUpperCase()}`;
+
+                chartTitle.textContent = `${data.company_name} (${data.ticker}) - ${data.interval.toUpperCase()}`;
+                
                 if (chart) chart.destroy(); // Clear existing chart
+
+                const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                gradient.addColorStop(0, 'rgba(37, 99, 235, 0.5)');
+                gradient.addColorStop(1, 'rgba(37, 99, 235, 0)');
 
                 chart = new Chart(ctx, {
                     type: 'line',
@@ -56,19 +66,42 @@
                         datasets: [{
                             label: `${data.company_name} (${data.interval.toUpperCase()})`,
                             data: data.prices,
-                            borderColor: 'green',
-                            tension: 0.1,
-                            fill: false
+                            borderColor: '#2563eb',
+                            backgroundColor: gradient,
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 0
                         }]
                     },
                     options: {
                         responsive: true,
+                        plugins: {
+                            legend: { 
+                                display: true,
+                                labels: {color: '#374151'}
+                             },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    label: (tooltipItem) => `$${tooltipItem.parsed.y.toFixed(2)}`
+                                    }
+                                }
+                        },
+                        interaction: {
+                            mode: 'index',
+                            axis: 'x',
+                            intersect: false
+                        },
                         scales: {
                             x: {
-                                ticks: { maxTicksLimit: 10 }
+                                ticks: { maxTicksLimit: 10, color: '#6b7280'},
+                                grid: { color: 'rgba(0,0,0,0,0.05)' }
                             },
                             y: {
-                                title: { display: true, text: 'Price (USD)' }
+                                ticks: { color: '#6b7280' },
+                                grid: { color: 'rgba(0,0,0,0,0.05)' },
+                                title: { display: true, text: 'Price (USD)', color: '#374151'}
                             }
                         }
                     }
