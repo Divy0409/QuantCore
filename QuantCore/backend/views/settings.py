@@ -4,7 +4,7 @@ import os
 from django.conf import settings
 
 def settings_view(request):
-    env_file = os.path.join(settings.BASE_DIR, 'django_backend', '.env')
+    env_file = os.path.join(settings.BASE_DIR, 'backend', '.env')
     existing_values = {}
     message = None  
     message_type = None  
@@ -23,7 +23,7 @@ def settings_view(request):
             key: request.POST.get(key, "").strip() or existing_values.get(key, "")
             for key in [
                 'DATABASE_NAME', 'DATABASE_USER', 'DATABASE_PASSWORD',
-                'DATABASE_HOST', 'DATABASE_PORT'
+                'DATABASE_HOST', 'DATABASE_PORT', 'HF_API_KEY', 'ALPHAVANTAGE_API_KEY',
             ]
         }
 

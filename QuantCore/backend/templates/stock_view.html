@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<head>
+    <title>Stock Chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h2>Stock Price Viewer</h2>
+    <form id="stockForm">
+        <label for="ticker">Ticker:</label>
+        <input type="text" id="ticker" name="ticker" required>
+        <label for="interval">Interval:</label>
+        <select id="interval" name="interval">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="5y">Last 5 Years</option>
+            <option value="max">Max</option>
+        </select>
+        <button type="submit">Search</button>
+    </form>
+
+    <div>
+        <canvas id="stockChart" width="800" height="400"></canvas>
+    </div>
+
+    <script>
+        const form = document.getElementById('stockForm');
+        const ctx = document.getElementById('stockChart').getContext('2d');
+        let chart = null;
+
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const ticker = document.getElementById('ticker').value.trim();
+            const interval = document.getElementById('interval').value;
+
+            if (!ticker) return alert("Please enter a ticker.");
+
+            try {
+                const res = await fetch(`/api/stock-data/?ticker=${ticker}&interval=${interval}`);
+                const data = await res.json();
+
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                chartTitle = `${data.company_name} (${data.company_name}) - ${data.interval.toUpperCase()}`;
+                if (chart) chart.destroy(); // Clear existing chart
+
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.dates,
+                        datasets: [{
+                            label: `${data.company_name} (${data.interval.toUpperCase()})`,
+                            data: data.prices,
+                            borderColor: 'green',
+                            tension: 0.1,
+                            fill: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: {
+                                ticks: { maxTicksLimit: 10 }
+                            },
+                            y: {
+                                title: { display: true, text: 'Price (USD)' }
+                            }
+                        }
+                    }
+                });
+            } catch (err) {
+                alert("Error fetching data");
+                console.error(err);
+            }
+        });
+    </script>
+</body>
+{% endblock %}

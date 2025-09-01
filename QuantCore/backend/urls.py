@@ -1,4 +1,5 @@
 from django.urls import path
+from .views.stock_views import StockDataAPIView, stock_chart_page
 from .views.settings import settings_view
 from .views.chatbot import chatbot_view
 from .views.home import home_view
@@ -11,6 +12,8 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('chatbot/', SessionCreateView.as_view(), name='create-session'),
     path('chatbot/sessions/', SessionListView.as_view(), name='list-sessions'),
+    path('stock-data/', StockDataAPIView.as_view(), name='stock-data-api'),
+    path('stock/', stock_chart_page, name='stock-page'),
     path('chatbot/<str:session_id>/', ConversationListView.as_view(), name='get-conversation'),
     path('chatbot/<str:session_id>/add/', ConversationCreateView.as_view(), name='post-message'),
     path('chatbot/<str:session_id>/response/', ChatbotGenerateResponseView.as_view(), name='generate-response'),

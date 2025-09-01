@@ -35,7 +35,13 @@
     <label for="DATABASE_PORT">DATABASE_PORT</label>
     <input type="text" name="DATABASE_PORT" id="DATABASE_PORT"
         value="{{ existing_values.DATABASE_PORT|default:'' }}"><br>
+    
+    <label for="HF_API_KEY">HF_API_KEY</label>
+    <input type="text" name="HF_API_KEY" id="HF_API_KEY" value="{{ existing_values.HF_API_KEY|default:'' }}"><br>
 
+    <label for="ALPHAVANTAGE_API_KEY">ALPHAVANTAGE_API_KEY</label>
+    <input type="text" name="ALPHAVANTAGE_API_KEY" id="ALPHAVANTAGE_API_KEY" value="{{ existing_values.ALPHAVANTAGE_API_KEY|default:'' }}"><br>
+    
     <button type="submit">Save Settings</button>
 </form>
 
