@@ -6,6 +6,7 @@
 <head>
     <title>Stock Chart</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{% static 'stock.css' %}">
 </head>
 <body>
     <h2>📈 Stock Price Viewer</h2>
@@ -14,20 +15,26 @@
         <input type="text" id="ticker" name="ticker" placeholder="Enter stock ticker" required>
         <label for="interval">Interval:</label>
         <select id="interval" name="interval">
+            <option value="1min">1 Minute</option>
+            <option value="5min">5 Minutes</option>
+            <option value="15min">15 Minutes</option>
+            <option value="30min">30 Minutes</option>
+            <option value="60min">60 Minutes</option>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
             <option value="5y">Last 5 Years</option>
             <option value="max">Max</option>
         </select>
         <button type="submit">Search</button>
     </form>
-
+    <div class="chart-wrapper">
     <div class="chart-container">
         <h2 id="chartTitle"></h2>
-        <canvas id="stockChart" width="800" height="400"></canvas>
+        <canvas id="stockChart"></canvas>
     </div>
-
+    </div>
     <script>
         const form = document.getElementById('stockForm');
         const ctx = document.getElementById('stockChart').getContext('2d');
@@ -51,7 +58,7 @@
                     return;
                 }
 
-                chartTitle.textContent = `${data.company_name} (${data.ticker}) - ${data.interval.toUpperCase()}`;
+                chartTitleElem.textContent = `${data.company_name} (${data.ticker}) - ${data.interval.toUpperCase()}`;
                 
                 if (chart) chart.destroy(); // Clear existing chart
 
@@ -75,6 +82,7 @@
                     },
                     options: {
                         responsive: true,
+                        maintainAspectRatio: false,
                         plugins: {
                             legend: { 
                                 display: true,
