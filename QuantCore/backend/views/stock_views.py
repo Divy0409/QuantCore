@@ -5,13 +5,14 @@ import requests
 import os
 from dotenv import load_dotenv
 from django.shortcuts import render
-from datetime import datetime
+from datetime import datetime,timedelta
 
 def stock_chart_page(request):
     return render(request, 'stock_view.html')
 
 load_dotenv()
 API_KEY = os.getenv('ALPHAVANTAGE_API_KEY')
+FMP_API_KEY = os.getenv('FMP_API_KEY')
 
 class StockDataAPIView(APIView):
     def get(self, request):
@@ -21,6 +22,7 @@ class StockDataAPIView(APIView):
         if not ticker:
             return Response({'error': 'Ticker is required.'}, status=400)
 
+        # ---------- Chart Data ----------
         # Handle Alpha Vantage functions
         if interval in ['1min', '5min', '15min', '30min', '60min']:
             function = "TIME_SERIES_INTRADAY"
@@ -29,7 +31,7 @@ class StockDataAPIView(APIView):
             function = "TIME_SERIES_INTRADAY"
             intraday_interval = '60min'
             url = f'https://www.alphavantage.co/query?function={function}&symbol={ticker}&interval={intraday_interval}&outputsize=compact&apikey={API_KEY}'
-        elif interval in ['weekly','monthly']:
+        elif interval in ['weekly','monthly','5y']:
             function = "TIME_SERIES_DAILY"
             url = f'https://www.alphavantage.co/query?function={function}&symbol={ticker}&outputsize=full&apikey={API_KEY}'
         elif interval == 'yearly':
@@ -84,6 +86,13 @@ class StockDataAPIView(APIView):
                 if d.year == this_year:
                     chart_data.append((dt, float(val['4. close'])))
 
+        elif interval == '5y':
+            five_years_ago = now - timedelta(days=5*365)
+            for dt, val in sorted_data:
+                d = datetime.strptime(dt, '%Y-%m-%d')
+                if d >= five_years_ago:
+                    chart_data.append((dt, float(val['4. close'])))
+
         else:
             chart_data = [(dt, float(val['4. close'])) for dt, val in sorted_data]
 
@@ -91,6 +100,7 @@ class StockDataAPIView(APIView):
         prices = [item[1] for item in chart_data]
         company_name = ticker
 
+        # ---------- Company Name ----------
         overview_url = f'https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={API_KEY}'
         overview_res = requests.get(overview_url).json()
 
@@ -102,10 +112,34 @@ class StockDataAPIView(APIView):
             if "bestMatches" in search_res and len(search_res["bestMatches"]) > 0:
                 company_name = search_res["bestMatches"][0]["2. name",ticker]
 
+        # ---------- Sentiment Data ----------
+        sentiment_url = (f'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers={ticker}&apikey={API_KEY}'
+)
+        sentiment_json = requests.get(sentiment_url).json()
+
+        sentiment_data = []
+        target_ticker = ticker.upper()
+        if "feed" in sentiment_json:
+            for item in sentiment_json["feed"]:
+                source = item.get("source", "").lower(),
+                time_published = item.get("time_published", "")
+                if "ticker_sentiment" in item:
+                    for ts in item["ticker_sentiment"]:
+                        if ts.get("ticker") == target_ticker:
+                            sentiment_data.append({
+                                "source": source,
+                                "time_published": time_published,
+                                "ticker": ts.get("ticker"),
+                                "relevance_score": ts.get("relevance_score"),
+                                "ticker_sentiment_score": ts.get("ticker_sentiment_score"),
+                                "ticker_sentiment_label": ts.get("ticker_sentiment_label"),
+                        })
+
         return Response({
             'ticker': ticker,
             'company_name': company_name,
             'interval': interval,
             'dates': dates,
-            'prices': prices
+            'prices': prices,
+            'sentiment': sentiment_data
         })

@@ -34,12 +34,45 @@
         <h2 id="chartTitle"></h2>
         <canvas id="stockChart"></canvas>
     </div>
+        <div class="sentiment-container">
+            <h2>Market Sentiment</h2>
+            <div id="sentimentList" class="sentiment-list">
+                <p class="placeholder">Search for a stock to load sentiment data.</p>
+            </div>
+        </div>
     </div>
     <script>
         const form = document.getElementById('stockForm');
         const ctx = document.getElementById('stockChart').getContext('2d');
         const chartTitleElem = document.getElementById('chartTitle');
+        const sentimentList = document.getElementById('sentimentList');
         let chart = null;
+
+        function renderSentiment(sentiments) {
+            sentimentList.innerHTML = "";
+
+            if (!sentiments || sentiments.length === 0) {
+                sentimentList.innerHTML = "<p>No sentiment data available.</p>";
+                return;
+            }
+
+            sentiments.slice(0, 10).forEach(item => {
+                const div = document.createElement("div");
+                div.className = "sentiment-item";
+                div.innerHTML = `
+                    <div class="meta">
+                        <span class="source">Source: ${item.source}</span>
+                        <span class="ticker">Ticker: ${item.ticker}</span>
+                        <span class="relevance_score">Relevance: ${item.relevance_score}</span>
+                        <span class="sentiment">Sentiment: ${item.ticker_sentiment_label} (${item.ticker_sentiment_score})</span>
+                        <span class="sentiment_score">Sentiment Score: ${item.ticker_sentiment_score}</span>
+                        <span class="time">Published: ${item.time_published}</span>
+                    </div>
+                `;
+                sentimentList.appendChild(div);
+            });
+        }
+
 
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -114,6 +147,7 @@
                         }
                     }
                 });
+                renderSentiment(data.sentiment);
             } catch (err) {
                 alert("Error fetching data");
                 console.error(err);
