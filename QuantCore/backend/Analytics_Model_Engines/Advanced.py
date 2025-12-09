@@ -649,7 +649,6 @@ def sentiment_ensemble_predict(df_sent_features: pd.DataFrame, embed_xgb_model=N
 
 # -------------------------- Full pipeline ---------------------------------
 
-
 def advance_analysis(ticker: str,
                      seq_window: int = 30,
                      train_lstm_flag: bool = True,
