@@ -21,7 +21,7 @@
 
     <div id="results" style="display:none;">
         <h2>Results</h2>
-        <p><strong>Company Name:</strong> <span id="company_name"></span></p>
+        <!-- <p><strong>Company Name:</strong> <span id="company_name"></span></p>
         <p><strong>Baseline RMSE:</strong> <span id="baseline_rmse"></span></p>
         <p><strong>Baseline R² Score:</strong> <span id="baseline_r2"></span></p>
         <p><strong>Sentiment Effect on Prediction:</strong> <span id="sentiment_effect"></span></p>
@@ -31,7 +31,8 @@
         <p><strong>Final Model R² Score:</strong> <span id="final_r2"></span></p>
         <p><strong>Predicted Next Day Price:</strong> <span id="predicted_price"></span></p>
         <p><strong>Historical Data Count:</strong> <span id="historical_count"></span></p>
-        <p><strong>Sentiment Data Count:</strong> <span id="sentiment_count"></span></p>
+        <p><strong>Sentiment Data Count:</strong> <span id="sentiment_count"></span></p> -->
+        <p><strong>Final Prediction:</strong> <span id="final_pred"></span></p>
     </div>
 </div>
 
@@ -58,19 +59,19 @@ document.getElementById("stockForm").addEventListener("submit", async function(e
             return;
         }
 
-        document.getElementById("ticker").textContent = data.ticker;
-        document.getElementById("company_name").textContent = data.company_name;
-        document.getElementById("baseline_rmse").textContent = data.baseline_rmse.toFixed(4);
-        document.getElementById("baseline_r2").textContent = data.baseline_r2.toFixed(4);
-        document.getElementById("sentiment_effect").textContent = data.sentiment_effect_pred.toFixed(4);
-        document.getElementById("sentiment_rmse").textContent = data.sentiment_rmse.toFixed(4);
-        document.getElementById("sentiment_r2").textContent = data.sentiment_r2.toFixed(4);
-        document.getElementById("final_rmse").textContent = data.final_rmse.toFixed(4);
-        document.getElementById("final_r2").textContent = data.final_r2.toFixed(4);
-        document.getElementById("predicted_price").textContent = `$${data.baseline_pred_next_close.toFixed(2)}`;
-        document.getElementById("historical_count").textContent = data.price_history_days;
-        document.getElementById("sentiment_count").textContent = data.sentiment_days_available;
-        
+        // document.getElementById("ticker").textContent = data.ticker;
+        // document.getElementById("company_name").textContent = data.company_name;
+        // document.getElementById("baseline_rmse").textContent = data.baseline_rmse.toFixed(4);
+        // document.getElementById("baseline_r2").textContent = data.baseline_r2.toFixed(4);
+        // document.getElementById("sentiment_effect").textContent = data.sentiment_effect_pred.toFixed(4);
+        // document.getElementById("sentiment_rmse").textContent = data.sentiment_rmse.toFixed(4);
+        // document.getElementById("sentiment_r2").textContent = data.sentiment_r2.toFixed(4);
+        // document.getElementById("final_rmse").textContent = data.final_rmse.toFixed(4);
+        // document.getElementById("final_r2").textContent = data.final_r2.toFixed(4);
+        // document.getElementById("predicted_price").textContent = `$${data.baseline_pred_next_close.toFixed(2)}`;
+        // document.getElementById("historical_count").textContent = data.price_history_days;
+        // document.getElementById("sentiment_count").textContent = data.sentiment_days_available;
+        document.getElementById("final_pred").textContent = data.final_pred.toFixed(4);
 
         results.style.display = "block";
     } catch (error) {

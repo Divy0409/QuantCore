@@ -19,6 +19,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 # ML libs
+from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score
 import lightgbm as lgb
@@ -313,24 +314,68 @@ def train_price_models(df_price: pd.DataFrame, seq_window: int = 30, epochs_lstm
     train_n = int(0.8 * len(X_seq))
     Xs_train, Xs_test = X_seq[:train_n], X_seq[train_n:]
     ys_train, ys_test = y_seq[:train_n], y_seq[train_n:]
+    
+    # --- scale sequence inputs & targets ---
+    seq_x_scaler = StandardScaler()
+    seq_y_scaler = StandardScaler()
 
-    # LSTM
-    callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=3, restore_best_weights=True)
-    lstm = build_lstm(input_shape=(Xs_train.shape[1], Xs_train.shape[2]))
+    # flatten timesteps*features for scaler.fit, then reshape back
+    n_samples_train, timesteps, n_feats = Xs_train.shape
+    Xs_train_flat = Xs_train.reshape(n_samples_train * timesteps, n_feats)
+    seq_x_scaler.fit(Xs_train_flat)
+    Xs_train_scaled = seq_x_scaler.transform(Xs_train_flat).reshape(n_samples_train, timesteps, n_feats)
+
+    n_samples_test = Xs_test.shape[0]
+    Xs_test_scaled = seq_x_scaler.transform(Xs_test.reshape(n_samples_test * timesteps, n_feats)).reshape(n_samples_test, timesteps, n_feats)
+
+    # scale y
+    seq_y_scaler.fit(ys_train.reshape(-1, 1))
+    y_train_scaled = seq_y_scaler.transform(ys_train.reshape(-1, 1)).flatten()
+    y_test_scaled = seq_y_scaler.transform(ys_test.reshape(-1, 1)).flatten()
+
+    # --- LSTM ---
+    lstm_model = None
+    lstm_pred = None
+    lstm_rmse = None
+    lstm_r2 = None
     if epochs_lstm > 0:
-        lstm.fit(Xs_train, ys_train, epochs=epochs_lstm, batch_size=32, verbose=verbose, callbacks=[callback])
-    lstm_pred = lstm.predict(Xs_test).flatten()
-    lstm_rmse = math.sqrt(mean_squared_error(ys_test, lstm_pred))
-    lstm_r2 = r2_score(ys_test, lstm_pred)
+        callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        lstm_model = build_lstm(input_shape=(Xs_train_scaled.shape[1], Xs_train_scaled.shape[2]))
+        lstm_model.fit(
+            Xs_train_scaled, y_train_scaled,
+            epochs=epochs_lstm,
+            batch_size=32,
+            verbose=verbose,
+            validation_split=0.1,
+            callbacks=[callback]
+        )
+        y_pred_scaled = lstm_model.predict(Xs_test_scaled).flatten()
+        # inverse scale to original units
+        lstm_pred = seq_y_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+        lstm_rmse = math.sqrt(mean_squared_error(ys_test, lstm_pred))
+        lstm_r2 = r2_score(ys_test, lstm_pred)
 
-    # CNN-LSTM
-    callback_cnn = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=3, restore_best_weights=True)
-    cnn_lstm = build_cnn_lstm(input_shape=(Xs_train.shape[1], Xs_train.shape[2]))
+    # --- CNN-LSTM ---
+    cnn_model = None
+    cnn_pred = None
+    cnn_rmse = None
+    cnn_r2 = None
     if epochs_cnnlstm > 0:
-        cnn_lstm.fit(Xs_train, ys_train, epochs=epochs_cnnlstm, batch_size=32, verbose=verbose, callbacks=[callback_cnn])
-    cnn_pred = cnn_lstm.predict(Xs_test).flatten()
-    cnn_rmse = math.sqrt(mean_squared_error(ys_test, cnn_pred))
-    cnn_r2 = r2_score(ys_test, cnn_pred)
+        callback_cnn = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        cnn_model = build_cnn_lstm(input_shape=(Xs_train_scaled.shape[1], Xs_train_scaled.shape[2]))
+        cnn_model.fit(
+            Xs_train_scaled, y_train_scaled,
+            epochs=epochs_cnnlstm,
+            batch_size=32,
+            verbose=verbose,
+            validation_split=0.1,
+            callbacks=[callback_cnn]
+        )
+        cnn_pred_scaled = cnn_model.predict(Xs_test_scaled).flatten()
+        cnn_pred = seq_y_scaler.inverse_transform(cnn_pred_scaled.reshape(-1, 1)).flatten()
+        cnn_rmse = math.sqrt(mean_squared_error(ys_test, cnn_pred))
+        cnn_r2 = r2_score(ys_test, cnn_pred)
+
 
     # Tabular train/test
     X_tab = df[features].values
@@ -338,15 +383,16 @@ def train_price_models(df_price: pd.DataFrame, seq_window: int = 30, epochs_lstm
     t_split = int(0.8 * len(X_tab))
     X_tab_train, X_tab_test = X_tab[:t_split], X_tab[t_split:]
     y_tab_train, y_tab_test = y_tab[:t_split], y_tab[t_split:]
-    X_tab_train = X_tab_train.astype(np.float32)
-    X_tab_test  = X_tab_test.astype(np.float32)
-    y_tab_train = y_tab_train.astype(np.float32)
-    y_tab_test  = y_tab_test.astype(np.float32)
 
+    # scale tabular features
+    tab_scaler = StandardScaler()
+    X_tab_train_scaled = tab_scaler.fit_transform(X_tab_train)
+    X_tab_test_scaled = tab_scaler.transform(X_tab_test)
+   
     # LightGBM
     lgb_model = lgb.LGBMRegressor(n_estimators=300, learning_rate=0.05, num_leaves=31, max_depth=-1)
-    lgb_model.fit(X_tab_train, y_tab_train)
-    lgb_pred = lgb_model.predict(X_tab_test)
+    lgb_model.fit(X_tab_train_scaled, y_tab_train)
+    lgb_pred = lgb_model.predict(X_tab_test_scaled)
     lgb_rmse = math.sqrt(mean_squared_error(y_tab_test, lgb_pred))
     lgb_r2 = r2_score(y_tab_test, lgb_pred)
 
@@ -357,7 +403,7 @@ def train_price_models(df_price: pd.DataFrame, seq_window: int = 30, epochs_lstm
     rf_rmse = math.sqrt(mean_squared_error(y_tab_test, rf_pred))
     rf_r2 = r2_score(y_tab_test, rf_pred)
 
-    price_models = {"lstm": lstm, "cnn_lstm": cnn_lstm, "lightgbm": lgb_model, "random_forest": rf}
+    price_models = {"lstm": lstm_model, "cnn_lstm": cnn_model, "lightgbm": lgb_model, "random_forest": rf, "scalers": {"seq_x": seq_x_scaler, "seq_y": seq_y_scaler, "tab_x": tab_scaler}}
     holdout = {
         "seq_test": Xs_test, "seq_y_test": ys_test,
         "tab_test": X_tab_test, "tab_y_test": y_tab_test,
@@ -459,32 +505,47 @@ def build_sentiment_ensemble(df_price: pd.DataFrame,
             del tk_ro
         free_torch()
 
-    # Embeddings (sentence-transformers)
+   # Embeddings (sentence-transformers)
     embed_ok = False
     embed_norms = {}
     try:
-        if verbose: print("Loading embedder:", embed_model_name)
+        if verbose:
+            print("Loading embedder:", embed_model_name)
+
         embedder = load_sentence_transformer(embed_model_name)
         embed_ok = True
+
         for d, texts in per_day_texts.items():
             if not texts:
                 embed_norms[d] = 0.0
                 continue
+
             try:
-                embs = embedder.encode(texts, output_value="numpy", show_progress_bar=False)
+                # FIX: use convert_to_numpy instead of output_value="numpy"
+                embs = embedder.encode(
+                    texts,
+                    convert_to_numpy=True,
+                    show_progress_bar=False
+                )
                 embed_norms[d] = float(np.linalg.norm(np.mean(embs, axis=0)))
+
             except Exception as e:
-                if verbose: print("Embedding error:", e)
+                if verbose:
+                    print("Embedding error:", e)
                 embed_norms[d] = 0.0
+
     except Exception as e:
-        if verbose: print("Embedder load/encode failed:", e)
+        if verbose:
+            print("Embedder load/encode failed:", e)
         embed_ok = False
+
     finally:
         try:
             del embedder
         except Exception:
             pass
         free_torch()
+
 
     # aggregate days -> df_daily_sentagg
     days = []
@@ -560,6 +621,11 @@ def inverse_rmse_weights(metrics: dict, models: list):
 
 def price_ensemble_predict(price_models: dict, last_rows_df: pd.DataFrame, features: list, metrics: dict, seq_window: int = 30) -> Tuple[float, dict]:
     """Make per-model price predictions and compute weighted ensemble using inverse-RMSE weights."""
+    # ---- SAFETY PATCH ----
+    if 'tab_input' not in locals() or tab_input is None:
+        print("Warning: tab_input unavailable, using zero vector fallback.")
+        tab_input = np.zeros((1, len(features)))
+        
     tab_input = np.nan_to_num(tab_input, nan=0.0, posinf=0.0, neginf=0.0)
     tab_input = last_rows_df[features].values[-1].reshape(1, -1)
     seq_input = last_rows_df[features].values[-seq_window:].reshape(1, seq_window, len(features), 1)
@@ -665,9 +731,12 @@ def advance_analysis(ticker: str,
     """
     Orchestrator: fetch price, train price models, build sentiment features, train embed->xgb,
     compute ensembles, return metrics and next-day prediction.
-    NOTE: train_lgb_flag / train_rf_flag currently do not skip training inside train_price_models;
-    they only control whether those models are *used* for downstream embed baseline / outputs.
-    To skip training them entirely (faster), modify train_price_models accordingly.
+
+    This version includes defensive fixes:
+     - ensures 'adjusted_close' exists (fallback to common column names or 'close')
+     - computes engineered price columns before/after merges when missing
+     - protects embedding/residual training against missing columns
+     - robustly extracts tab features for baseline predictions
     """
     start_time = time.time()
     df_price_local = fetch_intraday_or_daily(ticker, interval="60min", use_intraday=False)
@@ -681,9 +750,21 @@ def advance_analysis(ticker: str,
     else:
         # try to fall back to index or raise
         try:
-            df_price_local["date"] = pd.to_datetime(df_price_local.index)
+            df_price_local = df_price_local.reset_index().rename(columns={df_price_local.index.name or 0: "date"})
+            df_price_local["date"] = pd.to_datetime(df_price_local["date"])
         except Exception:
             raise RuntimeError("Price data has no 'date' column and index is not datetime")
+
+    # Ensure adjusted_close exists (robust fallback)
+    if "adjusted_close" not in df_price_local.columns:
+        if "Adj Close" in df_price_local.columns:
+            df_price_local["adjusted_close"] = df_price_local["Adj Close"]
+        elif "adjustedClose" in df_price_local.columns:
+            df_price_local["adjusted_close"] = df_price_local["adjustedClose"]
+        elif "close" in df_price_local.columns:
+            df_price_local["adjusted_close"] = df_price_local["close"]
+        else:
+            raise RuntimeError("No usable close price found to compute adjusted_close")
 
     # Train price models (LSTM/CNN epochs controlled by flags)
     price_models, holdout, price_metrics, df_prepared, price_features = train_price_models(
@@ -715,33 +796,101 @@ def advance_analysis(ticker: str,
     if sent_features_df is not None and len(sent_features_df) >= 30 and train_sent_embed_flag:
         # compute engineered price columns on full price DataFrame
         df_price_map = ensure_price_engineered(df_price_local.copy())
+
         # Ensure date_only exists in both sides as date objects
+        sent_features_df = sent_features_df.copy()
         sent_features_df["date_only"] = pd.to_datetime(sent_features_df["date_dt"]).dt.date
-        df_price_map["date_only"] = pd.to_datetime(df_price_map["date"]).dt.date
+        df_price_map = df_price_map.copy()
+        if "date" in df_price_map.columns:
+            df_price_map["date_only"] = pd.to_datetime(df_price_map["date"]).dt.date
+        else:
+            # fallback if df_price_map used different naming
+            df_price_map["date_only"] = pd.to_datetime(df_price_map.index).date
 
         # merge on date_only preserving price-aligned features
-        merged_for_embed = pd.merge(sent_features_df, df_price_map, on="date_only", how="inner", suffixes=("_sent", "_price"))
+        merged_for_embed = pd.merge(sent_features_df, df_price_map, left_on="date_only", right_on="date_only", how="inner", suffixes=("_sent", "_price"))
+
+        # Ensure adjusted_close exists in merged frame; if not, attempt to rebuild from price side
+        if "adjusted_close" not in merged_for_embed.columns:
+            # try to pull from price-suffixed column
+            possible = [c for c in merged_for_embed.columns if c.lower().endswith("adjusted_close") or c.lower().endswith("adj close") or c.lower() == "adjustedclose"]
+            if possible:
+                merged_for_embed["adjusted_close"] = merged_for_embed[possible[0]]
+            elif "close" in merged_for_embed.columns:
+                merged_for_embed["adjusted_close"] = merged_for_embed["close"]
+            else:
+                # As an ultimate fallback, try copying from df_price_map by aligning date_only
+                price_lookup = df_price_map.set_index("date_only")["adjusted_close"] if "adjusted_close" in df_price_map.columns else None
+                if price_lookup is not None:
+                    merged_for_embed["adjusted_close"] = merged_for_embed["date_only"].map(price_lookup)
+                else:
+                    raise RuntimeError("adjusted_close missing, cannot compute target_next")
+
+        # Recompute/ensure target_next from adjusted_close (post-merge)
         merged_for_embed = merged_for_embed.sort_values("date_only").reset_index(drop=True)
+        merged_for_embed["target_next"] = merged_for_embed["adjusted_close"].shift(-1)
+        # Drop rows without a valid next target
+        merged_for_embed = merged_for_embed.dropna(subset=["target_next"]).reset_index(drop=True)
 
         if len(merged_for_embed) >= 30:
+            # Ensure engineered features exist; compute from merged adjusted_close if missing
+            if "return_1" not in merged_for_embed.columns:
+                merged_for_embed["return_1"] = merged_for_embed["adjusted_close"].pct_change().fillna(0.0)
+            if "vol_5" not in merged_for_embed.columns:
+                merged_for_embed["vol_5"] = merged_for_embed["return_1"].rolling(5).std().fillna(0.0)
+
+            # Make sure embedding-derived cols exist
+            for col in ["embed_mean_norm", "article_count"]:
+                if col not in merged_for_embed.columns:
+                    merged_for_embed[col] = 0.0
+
             # Build X for embed model (normalize emb_norm a bit to avoid huge scale)
-            X_tab_for_embed = merged_for_embed[["embed_mean_norm", "article_count", "return_1", "vol_5"]].fillna(0).values.astype(np.float32)
+            cols_needed = ["embed_mean_norm", "article_count", "return_1", "vol_5"]
+            X_tab_for_embed = merged_for_embed[cols_needed].fillna(0).values.astype(np.float32)
+
             # Simple normalization for embed_norm and article_count to keep scales comparable
-            # (these factors are arbitrary but stabilize training)
             if X_tab_for_embed.shape[0] > 0:
-                X_tab_for_embed[:, 0] = X_tab_for_embed[:, 0] / max(1.0, np.percentile(X_tab_for_embed[:, 0], 80))  # embed_norm
-                X_tab_for_embed[:, 1] = X_tab_for_embed[:, 1] / np.maximum(1.0, np.percentile(X_tab_for_embed[:, 1], 80))  # article_count
+                try:
+                    embed_norm_scale = max(1.0, float(np.percentile(X_tab_for_embed[:, 0], 80)))
+                except Exception:
+                    embed_norm_scale = 1.0
+                try:
+                    article_count_scale = max(1.0, float(np.percentile(X_tab_for_embed[:, 1], 80)))
+                except Exception:
+                    article_count_scale = 1.0
+
+                X_tab_for_embed[:, 0] = X_tab_for_embed[:, 0] / embed_norm_scale
+                X_tab_for_embed[:, 1] = X_tab_for_embed[:, 1] / article_count_scale
 
             # Build baseline predictions (average of LGB & RF) while respecting train_lgb_flag / train_rf_flag
             baseline_tab = []
             for _, row in merged_for_embed.iterrows():
-                # extract tab features in the same order as price_features
+                # robustly extract tab features in the same order as price_features
+                tab_vals = []
+                for feat in price_features:
+                    # try multiple naming possibilities: feat, feat + '_price', feat + '_price' suffix, or fallback 0
+                    if feat in row.index:
+                        tab_vals.append(row[feat])
+                    elif feat + "_price" in row.index:
+                        tab_vals.append(row[feat + "_price"])
+                    elif feat + "_sent" in row.index:
+                        tab_vals.append(row[feat + "_sent"])
+                    else:
+                        # try to get from df_price_map via date_only
+                        try:
+                            price_row = df_price_map.loc[df_price_map["date_only"] == row["date_only"]]
+                            if not price_row.empty and feat in price_row.columns:
+                                tab_vals.append(price_row.iloc[0][feat])
+                            else:
+                                tab_vals.append(0.0)
+                        except Exception:
+                            tab_vals.append(0.0)
+                # reshape and sanitize
                 try:
-                    tab_row = row[price_features].values.reshape(1, -1).astype(np.float32)
+                    tab_row = np.array(tab_vals, dtype=np.float32).reshape(1, -1)
                 except Exception:
-                    # fallback: try selecting from price side (in case of suffixes)
-                    tab_row = row[[c for c in price_features if c in row.index]].values.reshape(1, -1).astype(np.float32)
-                # guard against NaNs
+                    tab_row = np.nan_to_num(np.zeros((1, len(price_features)), dtype=np.float32), nan=0.0)
+
                 tab_row = np.nan_to_num(tab_row, nan=0.0, posinf=0.0, neginf=0.0)
 
                 preds = []
@@ -755,30 +904,26 @@ def advance_analysis(ticker: str,
                         preds.append(float(price_models["random_forest"].predict(tab_row)[0]))
                     except Exception:
                         preds.append(np.nan)
-                # if both disabled, fall back to using average of sequential models where available (not ideal)
+                # if both disabled or failed, append NaN so np.nanmean yields sensible result
                 if not preds:
-                    # try LSTM/CNN preds using last seq_window rows around this date if available
                     preds = [np.nan]
 
                 baseline_tab.append(np.nanmean(preds))
             baseline_tab = np.array(baseline_tab, dtype=np.float32)
 
-            # Align target_next: expect price-based target (next day's adjusted_close)
-            # If target_next missing, attempt to create it from price side
-            if "target_next" not in merged_for_embed.columns:
-                # try to create from adjusted_close_price column
-                if "adjusted_close" in merged_for_embed.columns:
-                    merged_for_embed = merged_for_embed.sort_values("date_only")
-                    merged_for_embed["target_next"] = merged_for_embed["adjusted_close"].shift(-1).values
-                else:
-                    raise RuntimeError("Cannot find 'target_next' or 'adjusted_close' for residual computation.")
-
-            # Remove rows where target_next is NaN (last day)
-            valid_idx = ~np.isnan(baseline_tab) & ~np.isnan(merged_for_embed["target_next"].values.astype(np.float32))
+            # Align valid indices where both baseline and target exist
+            targets = merged_for_embed["target_next"].values.astype(np.float32)
+            # ensure baseline_tab and targets lengths match
+            if baseline_tab.shape[0] != targets.shape[0]:
+                # attempt to align by trimming to min length
+                mlen = min(baseline_tab.shape[0], targets.shape[0])
+                baseline_tab = baseline_tab[:mlen]
+                targets = targets[:mlen]
+            valid_idx = (~np.isnan(baseline_tab)) & (~np.isnan(targets))
             if valid_idx.sum() >= 20:
                 X_tab_train = X_tab_for_embed[valid_idx]
                 baseline_valid = baseline_tab[valid_idx]
-                residuals = merged_for_embed.loc[valid_idx, "target_next"].values.astype(np.float32) - baseline_valid
+                residuals = targets[valid_idx] - baseline_valid
 
                 # Train XGBoost on residuals
                 embed_xgb = train_xgboost_regressor(X_tab_train, residuals)
@@ -788,7 +933,8 @@ def advance_analysis(ticker: str,
                     "r2": float(r2_score(residuals, preds_embed))
                 }
             else:
-                if verbose: print("Not enough valid rows for embed->xgb training after alignment:", int(valid_idx.sum()))
+                if verbose:
+                    print("Not enough valid rows for embed->xgb training after alignment:", int(valid_idx.sum()))
 
     # Price ensemble holdout evaluation (simple average baseline of lgb & rf)
     try:
@@ -816,8 +962,8 @@ def advance_analysis(ticker: str,
     if sent_features_df is not None:
         sent_ens, sent_model_preds = sentiment_ensemble_predict(sent_features_df, embed_xgb_model=embed_xgb)
 
-    final_pred = float(w_price * price_ens + w_sent * sent_ens)
-
+    sentiment_factor = np.clip(sent_ens, -1, 1) * 0.05   # ±5% effect
+    final_pred = float(price_ens * (1 + sentiment_factor))
     elapsed = time.time() - start_time
     result = {
         "ticker": ticker,
@@ -832,5 +978,5 @@ def advance_analysis(ticker: str,
         "sentiment_metrics": sentiment_metrics,
         "final_pred": final_pred,
     }
+    print(result)
     return result
-
