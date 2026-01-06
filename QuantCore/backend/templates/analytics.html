@@ -1,6 +1,12 @@
 {% extends 'base.html' %}
-
+{% load static %}
 {% block content %}
+<head>
+    <title>Stock Chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{% static 'stock_analysis.css' %}">
+</head>
+<body>
 <h1>Stock Analytics and Predictions</h1>
 
 <div class="stock-container">
@@ -21,22 +27,38 @@
 
     <div id="results" style="display:none;">
         <h2>Results</h2>
-        <!-- <p><strong>Company Name:</strong> <span id="company_name"></span></p>
-        <p><strong>Baseline RMSE:</strong> <span id="baseline_rmse"></span></p>
-        <p><strong>Baseline R² Score:</strong> <span id="baseline_r2"></span></p>
-        <p><strong>Sentiment Effect on Prediction:</strong> <span id="sentiment_effect"></span></p>
-        <p><strong>Sentiment RMSE:</strong> <span id="sentiment_rmse"></span></p>
-        <p><strong>Sentiment R² Score:</strong> <span id="sentiment_r2"></span></p>
-        <p><strong>Final Model RMSE:</strong> <span id="final_rmse"></span></p>
-        <p><strong>Final Model R² Score:</strong> <span id="final_r2"></span></p>
-        <p><strong>Predicted Next Day Price:</strong> <span id="predicted_price"></span></p>
-        <p><strong>Historical Data Count:</strong> <span id="historical_count"></span></p>
-        <p><strong>Sentiment Data Count:</strong> <span id="sentiment_count"></span></p> -->
-        <p><strong>Final Prediction:</strong> <span id="final_pred"></span></p>
+            <div class="results-grid">
+                <!-- LEFT: Metrics -->
+                <div class="results-metrics">
+                <p><strong>Company Name:</strong> <span id="company_name"></span></p>
+                <p><strong>Baseline RMSE:</strong> <span id="baseline_rmse"></span></p>
+                <p><strong>Baseline R² Score:</strong> <span id="baseline_r2"></span></p>
+                <p><strong>Sentiment Effect on Prediction:</strong> <span id="sentiment_effect"></span></p>
+                <p><strong>Sentiment RMSE:</strong> <span id="sentiment_rmse"></span></p>
+                <p><strong>Sentiment R² Score:</strong> <span id="sentiment_r2"></span></p>
+                <p><strong>Final Model RMSE:</strong> <span id="final_rmse"></span></p>
+                <p><strong>Final Model R² Score:</strong> <span id="final_r2"></span></p>
+                <p><strong>Final Model MAE:</strong> <span id="final_mae"></span></p>
+                <p><strong>Final Model MAPE:</strong> <span id="final_mape"></span></p>
+                <p><strong>Final Model Directional Accuracy (percentage):</strong> <span id="directional_accuracy"></span></p>
+                <p><strong>Final Theil's U:</strong> <span id="final_theil's_u"></span></p>
+                <p><strong>Historical Data Count:</strong> <span id="historical_count"></span></p>
+                <p><strong>Sentiment Data Count:</strong> <span id="sentiment_count"></span></p>
+                <p><strong>Predicted Next Day Price:</strong> <span id="predicted_price"></span></p>
+            </div>
+
+            <!-- RIGHT: ROC Chart -->
+            <div class="results-chart">
+                <h3>ROC Curve (Directional)</h3>
+                <canvas id="rocChart"></canvas>
+                <p class="auc-text">AUC: <span id="roc_auc"></span></p>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
+let rocChartInstance = null;
 document.getElementById("stockForm").addEventListener("submit", async function(event) {
     event.preventDefault();
     const ticker = document.getElementById("ticker").value.trim();
@@ -59,27 +81,79 @@ document.getElementById("stockForm").addEventListener("submit", async function(e
             return;
         }
 
-        // document.getElementById("ticker").textContent = data.ticker;
-        // document.getElementById("company_name").textContent = data.company_name;
-        // document.getElementById("baseline_rmse").textContent = data.baseline_rmse.toFixed(4);
-        // document.getElementById("baseline_r2").textContent = data.baseline_r2.toFixed(4);
-        // document.getElementById("sentiment_effect").textContent = data.sentiment_effect_pred.toFixed(4);
-        // document.getElementById("sentiment_rmse").textContent = data.sentiment_rmse.toFixed(4);
-        // document.getElementById("sentiment_r2").textContent = data.sentiment_r2.toFixed(4);
-        // document.getElementById("final_rmse").textContent = data.final_rmse.toFixed(4);
-        // document.getElementById("final_r2").textContent = data.final_r2.toFixed(4);
-        // document.getElementById("predicted_price").textContent = `$${data.baseline_pred_next_close.toFixed(2)}`;
-        // document.getElementById("historical_count").textContent = data.price_history_days;
-        // document.getElementById("sentiment_count").textContent = data.sentiment_days_available;
-        document.getElementById("final_pred").textContent = data.final_pred.toFixed(4);
+        document.getElementById("ticker").textContent = data.ticker;
+        document.getElementById("company_name").textContent = data.company_name;
+        document.getElementById("baseline_rmse").textContent = data.baseline_rmse.toFixed(4);
+        document.getElementById("baseline_r2").textContent = data.baseline_r2.toFixed(4);
+        document.getElementById("sentiment_effect").textContent = data.sentiment_effect_pred.toFixed(4);
+        document.getElementById("sentiment_rmse").textContent = data.sentiment_rmse.toFixed(4);
+        document.getElementById("sentiment_r2").textContent = data.sentiment_r2.toFixed(4);
+        document.getElementById("final_rmse").textContent = data.final_rmse.toFixed(4);
+        document.getElementById("final_r2").textContent = data.final_r2.toFixed(4);
+        document.getElementById("final_mae").textContent = data.final_mae.toFixed(4);
+        document.getElementById("final_mape").textContent = data.final_mape.toFixed(2) + "%";
+        document.getElementById("directional_accuracy").textContent = (data.directional_accuracy * 100).toFixed(2) + "%";
+        document.getElementById("final_theil's_u").textContent = data.final_theils_u.toFixed(4);
+        document.getElementById("predicted_price").textContent = `$${data.baseline_pred_next_close.toFixed(2)}`;
+        document.getElementById("historical_count").textContent = data.price_history_days;
+        document.getElementById("sentiment_count").textContent = data.sentiment_days_available;
+       
 
         results.style.display = "block";
+        // ---------- ROC Chart ----------
+        if (data.roc_curve && data.roc_curve.fpr && data.roc_curve.tpr) {
+            const fpr = data.roc_curve.fpr;
+            const tpr = data.roc_curve.tpr;
+            const auc = data.roc_curve.auc;
+
+            document.getElementById("roc_auc").textContent = auc.toFixed(3);
+
+            const ctx = document.getElementById("rocChart").getContext("2d");
+
+            if (rocChartInstance) {
+                rocChartInstance.destroy();
+            }
+
+            rocChartInstance = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: fpr,
+                    datasets: [
+                        {
+                            label: "ROC Curve",
+                            data: tpr,
+                            borderWidth: 2,
+                            tension: 0.25,
+                            fill: false
+                        },
+                        {
+                            label: "Random",
+                            data: fpr,
+                            borderDash: [5,5],
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { min:0, max:1, title:{display:true, text:"False Positive Rate"} },
+                        y: { min:0, max:1, title:{display:true, text:"True Positive Rate"} }
+                    },
+                    plugins: { legend:{ position:"bottom" } }
+                }
+            });
+        }
+
+        
     } catch (error) {
         loading.style.display = "none";
         errorMsg.textContent = "Failed to fetch data. Check your connection.";
     }
+
 });
 </script>
+</body>
 {% endblock %}
 
 

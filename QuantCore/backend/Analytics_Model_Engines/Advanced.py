@@ -417,6 +417,24 @@ def train_price_models(df_price: pd.DataFrame, seq_window: int = 30, epochs_lstm
     }
     return price_models, holdout, metrics, df, features
 
+# ------------------ REMOVE DISABLED MODELS (CRITICAL) ------------------
+    if not train_lstm_flag:
+        price_models["lstm"] = None
+        metrics.pop("lstm", None)
+
+    if not train_cnn_flag:
+        price_models["cnn_lstm"] = None
+        metrics.pop("cnn_lstm", None)
+
+    if not train_lgb_flag:
+        price_models["lightgbm"] = None
+        metrics.pop("lightgbm", None)
+
+    if not train_rf_flag:
+        price_models["random_forest"] = None
+        metrics.pop("random_forest", None)
+# ----------------------------------------------------------------------
+
 # -------------------------- Sentiment pipeline (fixed RoBERTa) ---------------
 
 def build_sentiment_ensemble(df_price: pd.DataFrame,
@@ -652,14 +670,39 @@ def price_ensemble_predict(price_models: dict, last_rows_df: pd.DataFrame, featu
     except Exception:
         preds["random_forest"] = None
 
-    # Compute weights from metrics
-    model_list = ["lstm", "cnn_lstm", "lightgbm", "random_forest"]
-    weights = inverse_rmse_weights(metrics, model_list)
+    # ----------------- ENSEMBLE ONLY ACTIVE MODELS -----------------
+    active_models = [
+        m for m in ["lstm", "cnn_lstm", "lightgbm", "random_forest"]
+        if m in metrics and preds.get(m) is not None
+    ]
+
+    if not active_models:
+        raise RuntimeError("No active models available for ensemble")
+
+    weights = inverse_rmse_weights(metrics, active_models)
+
+    avail_preds = []
+    avail_weights = []
+
+    for m in active_models:
+        p = preds[m]
+        if p is not None and not (isinstance(p, float) and np.isnan(p)):
+            avail_preds.append(p)
+            avail_weights.append(weights.get(m, 0.0))
+
+    w_arr = np.array(avail_weights, dtype=float)
+    if w_arr.sum() == 0:
+        w_arr = np.ones_like(w_arr) / len(w_arr)
+    else:
+        w_arr /= w_arr.sum()
+
+    price_ens = float(np.sum(np.array(avail_preds) * w_arr))
+# ---------------------------------------------------------------
 
     # Build ensemble from available preds
     avail_preds = []
     avail_weights = []
-    for m in model_list:
+    for m in active_models:
         p = preds.get(m, None)
         w = weights.get(m, 0.0)
         if p is not None:

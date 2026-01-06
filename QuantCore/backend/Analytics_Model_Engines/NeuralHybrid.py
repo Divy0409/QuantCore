@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 from dotenv import load_dotenv
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, roc_curve, auc
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -206,11 +206,68 @@ def NeuralHybrid(ticker: str):
             sentiment_rmse = float(np.sqrt(mean_squared_error(ys_test, ys_pred)))
             sentiment_r2 = float(r2_score(ys_test, ys_pred))
         
+            def theils_u(y_true, y_pred):
+                    y_true = np.array(y_true)
+                    y_pred = np.array(y_pred)
+
+                    num = np.sqrt(np.mean((y_pred[1:] - y_true[1:]) ** 2))
+                    den = np.sqrt(np.mean((y_true[1:] - y_true[:-1]) ** 2))
+                    return float(num / den)            
+            
             # Combined predictions
             combined_pred = merged["baseline_pred_next"].values + predict(model_b, merged[sent_features].values)
             combined_rmse = float(np.sqrt(mean_squared_error(merged["target_next_close"], combined_pred)))
             combined_r2 = float(r2_score(merged["target_next_close"], combined_pred))
+            combined_mae = float(mean_absolute_error(merged["target_next_close"], combined_pred))
+            combined_mape = float(np.mean(np.abs((merged["target_next_close"] - combined_pred) / merged["target_next_close"]))) * 100
+            combined_theils_u = theils_u(merged["target_next_close"], combined_pred)
+           
+            # Directional Accuracy
+            actual = merged["target_next_close"].values
+            pred = combined_pred
+
+            mask = ~np.isnan(actual) & ~np.isnan(pred)
+            actual = actual[mask]
+            pred = pred[mask]
+
+            if len(actual) > 1:
+                # Log returns (finance standard)
+                actual_ret = np.diff(np.log(actual))
+                pred_ret = np.diff(np.log(pred))
+
+                # Ignore micro moves (5-min noise)
+                eps = 1e-5
+                valid_mask = np.abs(actual_ret) > eps
+
+                if np.sum(valid_mask) > 0:
+                    directional_accuracy = float(
+                        np.mean(
+                            np.sign(actual_ret[valid_mask]) ==
+                            np.sign(pred_ret[valid_mask])
+                        ) 
+                    )
+                else:
+                    directional_accuracy = None
+            else:
+                directional_accuracy = None
     
+            # ROC Curve for direction prediction
+            roc_fpr = None
+            roc_tpr = None
+            roc_auc = None
+
+            if len(combined_pred) > 1:
+                actual_diff = actual[1:] - actual[:-1]
+                pred_diff = pred[1:] - actual[:-1]
+                true_binary = (actual_diff > 0).astype(int)
+                pred_score = pred_diff # continuous signal 
+                if len(np.unique(true_binary)) > 1: 
+                    roc_fpr, roc_tpr, _ = roc_curve(true_binary, pred_score) 
+                    roc_auc = float(auc(roc_fpr, roc_tpr)) 
+                    roc_fpr = roc_fpr.tolist() 
+                    roc_tpr = roc_tpr.tolist() 
+                else: roc_fpr, roc_tpr, roc_auc = None, None, None
+
     # ----------  Predict next day ----------
     latest_seq = df_base[baseline_features].iloc[-seq:].values.reshape(1, seq, -1)
     baseline_pred_next = float(predict(lstm, latest_seq))
@@ -244,6 +301,15 @@ def NeuralHybrid(ticker: str):
         "sentiment_r2": sentiment_r2,
         "final_rmse": combined_rmse,
         "final_r2": combined_r2,
+        "final_mae": combined_mae,
+        "final_mape": combined_mape,
+        "directional_accuracy": directional_accuracy,
+        "final_theils_u": combined_theils_u,
         "price_history_days": len(df_daily),
-        "sentiment_days_available": int(df_sent_daily.shape[0]) if sentiment_available else 0
+        "sentiment_days_available": int(df_sent_daily.shape[0]) if sentiment_available else 0,
+        "roc_curve": {
+                        "fpr": roc_fpr,
+                        "tpr": roc_tpr,
+                        "auc": roc_auc
+                    },
     }

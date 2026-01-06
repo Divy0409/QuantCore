@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 from dotenv import load_dotenv
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, roc_curve, auc
 import xgboost as xgb
 
 load_dotenv()
@@ -269,6 +269,18 @@ def XGBoost(ticker: str):
                         except Exception:
                             s_pred = 0.0
 
+                def mape(y_true, y_pred):
+                    y_true, y_pred = np.array(y_true), np.array(y_pred)
+                    return float(np.mean(np.abs((y_true-y_pred)/y_true))*100)
+                
+                def theils_u(y_true, y_pred):
+                    y_true = np.array(y_true)
+                    y_pred = np.array(y_pred)
+
+                    num = np.sqrt(np.mean((y_pred[1:] - y_true[1:]) ** 2))
+                    den = np.sqrt(np.mean((y_true[1:] - y_true[:-1]) ** 2))
+                    return float(num / den)
+
                 # combined prediction and actual
                 combined_pred_val = b_pred + s_pred
                 combined_preds.append(combined_pred_val)
@@ -278,6 +290,36 @@ def XGBoost(ticker: str):
             if len(combined_preds) > 0:
                 combined_rmse = float(np.sqrt(mean_squared_error(combined_actuals, combined_preds)))
                 combined_r2 = float(r2_score(combined_actuals, combined_preds))
+                combined_mae = float(mean_absolute_error(combined_actuals,combined_preds))
+                combined_mape = mape(combined_actuals,combined_preds)
+                combined_theils_u = theils_u(combined_actuals, combined_preds)
+                directional_accuracy = float(np.mean(np.sign(np.diff(combined_preds)) == np.sign(np.diff(combined_actuals))))
+            
+            # ---------- ROC Curve (Combined Model - Directional) ----------
+            roc_fpr = None
+            roc_tpr = None
+            roc_auc = None
+
+            if len(combined_preds) > 1:
+                combined_preds = np.array(combined_preds)
+                combined_actuals = np.array(combined_actuals)
+
+                # Reference price at time t
+                current_prices = df_baseline_test["adjusted_close"].values
+
+                # Binary ground truth: 1 = UP, 0 = DOWN
+                y_true = (combined_actuals > current_prices).astype(int)
+
+                # Continuous score: predicted price change
+                y_score = combined_preds - current_prices
+
+                # ROC computation
+                roc_fpr, roc_tpr, _ = roc_curve(y_true, y_score)
+                roc_auc = float(auc(roc_fpr, roc_tpr))
+
+                # Convert arrays to lists for JSON
+                roc_fpr = roc_fpr.tolist()
+                roc_tpr = roc_tpr.tolist()
 
         # ---------- 6) Make predictions for the next day ----------
         # Prepare the most recent row of df_daily to compute baseline prediction for next day
@@ -348,6 +390,15 @@ def XGBoost(ticker: str):
                     "sentiment_r2": sentiment_r2,
                     "final_rmse": combined_rmse,
                     "final_r2": combined_r2,
+                    "final_mae": combined_mae,
+                    "final_mape": combined_mape,
+                    "directional_accuracy": directional_accuracy,
+                    "final_theils_u":combined_theils_u,
                     "price_history_days": len(df_daily),
                     "sentiment_days_available": int(df_sent_daily.shape[0]) if sentiment_available else 0,
+                    "roc_curve": {
+                        "fpr": roc_fpr,
+                        "tpr": roc_tpr,
+                        "auc": roc_auc
+                    },
                 }
