@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'stock_performance.css' %}">
+
+<h1>Stock Performance</h1>
+
+<div class="stock-performance-container">
+
+    <!-- Input -->
+    <div class="ticker-input">
+        <input
+            type="text"
+            id="tickerInput"
+            placeholder="Enter ticker (e.g. AAPL)"
+        />
+        <button id="fetchBtn">Fetch</button>
+    </div>
+
+    <!-- Status -->
+    <div id="loading" style="display:none;">Loading indicators...</div>
+    <div id="error" class="error"></div>
+
+    <!-- Results -->
+    <div id="results" style="display:none;">
+        <h2 id="tickerTitle"></h2>
+
+        <div id="metricsGrid" class="metrics-grid"></div>
+        <div id="emptyState" class="empty-state" style="display:none;">
+            No technical indicators available for this stock right now.
+        </div>
+    </div>
+
+</div>
+
+<script>
+document.getElementById("fetchBtn").addEventListener("click", fetchPerformance);
+
+async function fetchPerformance() {
+    const ticker = document.getElementById("tickerInput").value.trim().toUpperCase();
+    const loading = document.getElementById("loading");
+    const error = document.getElementById("error");
+    const results = document.getElementById("results");
+    const grid = document.getElementById("metricsGrid");
+    const emptyState = document.getElementById("emptyState");
+
+    if (!ticker) return;
+
+    loading.style.display = "block";
+    error.textContent = "";
+    results.style.display = "none";
+    grid.innerHTML = "";
+    emptyState.style.display = "none";
+
+    try {
+        const response = await fetch(`/api/stock_performance/?ticker=${ticker}`);
+        const data = await response.json();
+
+        loading.style.display = "none";
+
+        if (!response.ok || !data || !data.metrics) {
+            error.textContent = data?.error || "Failed to fetch stock performance";
+            return;
+        }
+
+        document.getElementById("tickerTitle").textContent = data.ticker;
+
+        let renderedCount = 0;
+
+        // 🔥 Dynamic metric rendering (SAFE)
+        Object.entries(data.metrics).forEach(([_, metric]) => {
+            if (
+                metric.value === null ||
+                metric.value === undefined ||
+                Number.isNaN(metric.value)
+            ) {
+                return;
+            }
+
+            let displayValue;
+
+            if (metric.format === "percent") {
+                displayValue = Number(metric.value).toFixed(metric.precision) + "%";
+            } else {
+                displayValue = Number(metric.value).toFixed(metric.precision);
+            }
+
+            const card = document.createElement("div");
+            card.className = "metric-card";
+
+            card.innerHTML = `
+                <h4>${metric.label}</h4>
+                <p>${displayValue}</p>
+                ${
+                    metric.timestamp
+                        ? `<small>${metric.timestamp}</small>`
+                        : ""
+                }
+            `;
+
+            grid.appendChild(card);
+            renderedCount++;
+        });
+
+        if (renderedCount === 0) {
+            emptyState.style.display = "block";
+        }
+
+        results.style.display = "block";
+
+    } catch (err) {
+        loading.style.display = "none";
+        error.textContent = "Network error. Try again.";
+    }
+}
+</script>
+
+{% endblock %}

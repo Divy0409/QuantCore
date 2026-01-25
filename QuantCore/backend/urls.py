@@ -5,6 +5,7 @@ from .views.analytics import StockDataAnalysisAPIView, StockDataPageView
 from .views.settings import settings_view
 from .views.chatbot import chatbot_view
 from .views.home import home_view
+from .views.stock_performance import stock_performance_view, stock_performance_page
 from .views import SessionCreateView, ConversationListView, ConversationCreateView, SessionListView, ChatbotGenerateResponseView
 from django.conf import settings
 from django.conf.urls.static import static
@@ -25,6 +26,8 @@ urlpatterns = [
     path('home_view/', home_view, name='home-view'),  
     path('settings_view/', settings_view, name='settings-view'),
     path('portfolio', PortfolioAPIView.as_view(), name='portfolio-view'),
+    path('stock_performance/', stock_performance_view, name='stock-performance-view'),
+    path('stock_performance_page/', stock_performance_page, name='stock-performance-page'),
 
 ]
 
