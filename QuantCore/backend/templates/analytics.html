@@ -13,12 +13,19 @@
     <form id="stockForm">
         <label for="ticker">Enter Stock Ticker:</label>
         <input type="text" id="ticker" name="ticker" placeholder="e.g., AAPL" required>
+
         <label for="model">Choose Model:</label>
         <select id="model" name="model">
-            <option value="neural" selected>NeuralHybrid</option>
+            <option value="pureneural">Pure Neural</option>
+            <option value="hybridneural" selected>Neural Hybrid</option>
             <option value="xgboost">XGBoost</option>
-            <option value="advanced">Advanced</option>
         </select>
+
+        <label for="futureDate" id="dateLabel" style="display:none;">
+            Target Date (Optional):
+        </label>
+        <input type="date" id="futureDate" name="futureDate" style="display:none;">
+
         <button type="submit">Analyze</button>
     </form>
 
@@ -27,108 +34,174 @@
 
     <div id="results" style="display:none;">
         <h2>Results</h2>
-            <div class="results-grid">
-                <!-- LEFT: Metrics -->
-                <div class="results-metrics">
-                <p><strong>Company Name:</strong> <span id="company_name"></span></p>
-                <p><strong>Baseline RMSE:</strong> <span id="baseline_rmse"></span></p>
-                <p><strong>Baseline R² Score:</strong> <span id="baseline_r2"></span></p>
-                <p><strong>Sentiment Effect on Prediction:</strong> <span id="sentiment_effect"></span></p>
-                <p><strong>Sentiment RMSE:</strong> <span id="sentiment_rmse"></span></p>
-                <p><strong>Sentiment R² Score:</strong> <span id="sentiment_r2"></span></p>
-                <p><strong>Final Model RMSE:</strong> <span id="final_rmse"></span></p>
-                <p><strong>Final Model R² Score:</strong> <span id="final_r2"></span></p>
-                <p><strong>Final Model MAE:</strong> <span id="final_mae"></span></p>
-                <p><strong>Final Model MAPE:</strong> <span id="final_mape"></span></p>
-                <p><strong>Final Model Directional Accuracy (percentage):</strong> <span id="directional_accuracy"></span></p>
-                <p><strong>Final Theil's U:</strong> <span id="final_theil's_u"></span></p>
-                <p><strong>Historical Data Count:</strong> <span id="historical_count"></span></p>
-                <p><strong>Sentiment Data Count:</strong> <span id="sentiment_count"></span></p>
-                <p><strong>Predicted Next Day Price:</strong> <span id="predicted_price"></span></p>
-            </div>
-
-            <!-- RIGHT: ROC Chart -->
-            <div class="results-chart">
-                <h3>ROC Curve (Directional)</h3>
-                <canvas id="rocChart"></canvas>
-                <p class="auc-text">AUC: <span id="roc_auc"></span></p>
-            </div>
+        <div class="results-grid">
+            <div class="results-metrics" id="dynamicMetrics"></div>
+            <div class="results-chart" id="dynamicCharts"></div>
         </div>
     </div>
 </div>
 
 <script>
 let rocChartInstance = null;
+
+const modelSelect = document.getElementById("model");
+const dateInput = document.getElementById("futureDate");
+const dateLabel = document.getElementById("dateLabel");
+
+// Show date only for Pure Neural
+modelSelect.addEventListener("change", function () {
+    if (this.value === "pureneural") {
+        dateInput.style.display = "inline-block";
+        dateLabel.style.display = "inline-block";
+    } else {
+        dateInput.style.display = "none";
+        dateLabel.style.display = "none";
+        dateInput.value = "";
+    }
+});
+
 document.getElementById("stockForm").addEventListener("submit", async function(event) {
     event.preventDefault();
+
     const ticker = document.getElementById("ticker").value.trim();
+    const model = modelSelect.value;
     const loading = document.getElementById("loading");
     const errorMsg = document.getElementById("error-message");
     const results = document.getElementById("results");
+    const metricsContainer = document.getElementById("dynamicMetrics");
+    const chartsContainer = document.getElementById("dynamicCharts");
 
     loading.style.display = "block";
     errorMsg.textContent = "";
     results.style.display = "none";
+    metricsContainer.innerHTML = "";
+    chartsContainer.innerHTML = "";
 
     try {
-        const response = await fetch(`/api/analytics-data/?ticker=${ticker}&model=${document.getElementById("model").value}`);
-        const data = await response.json();
 
+        let url = `/api/analytics-data/?ticker=${ticker}&model=${model}`;
+
+        if (model === "pureneural" && dateInput.value) {
+            url += `&date=${dateInput.value}`;
+        }
+
+        const response = await fetch(url);
+        const data = await response.json();
         loading.style.display = "none";
 
         if (!response.ok) {
-            errorMsg.textContent = data.error || "Something went wrong. Please try again.";
+            errorMsg.textContent = data.error || "Something went wrong.";
             return;
         }
 
-        document.getElementById("ticker").textContent = data.ticker;
-        document.getElementById("company_name").textContent = data.company_name;
-        document.getElementById("baseline_rmse").textContent = data.baseline_rmse.toFixed(4);
-        document.getElementById("baseline_r2").textContent = data.baseline_r2.toFixed(4);
-        document.getElementById("sentiment_effect").textContent = data.sentiment_effect_pred.toFixed(4);
-        document.getElementById("sentiment_rmse").textContent = data.sentiment_rmse.toFixed(4);
-        document.getElementById("sentiment_r2").textContent = data.sentiment_r2.toFixed(4);
-        document.getElementById("final_rmse").textContent = data.final_rmse.toFixed(4);
-        document.getElementById("final_r2").textContent = data.final_r2.toFixed(4);
-        document.getElementById("final_mae").textContent = data.final_mae.toFixed(4);
-        document.getElementById("final_mape").textContent = data.final_mape.toFixed(2) + "%";
-        document.getElementById("directional_accuracy").textContent = (data.directional_accuracy * 100).toFixed(2) + "%";
-        document.getElementById("final_theil's_u").textContent = data.final_theils_u.toFixed(4);
-        document.getElementById("predicted_price").textContent = `$${data.baseline_pred_next_close.toFixed(2)}`;
-        document.getElementById("historical_count").textContent = data.price_history_days;
-        document.getElementById("sentiment_count").textContent = data.sentiment_days_available;
-       
+        // ----------------------------
+        // Dynamic Metric Rendering
+        // ----------------------------
+        Object.entries(data).forEach(([key, value]) => {
 
-        results.style.display = "block";
-        // ---------- ROC Chart ----------
+            if (key === "roc_curve") return;
+
+            // Handle long term forecast separately
+            if (key === "long_term_forecast" && typeof value === "object") {
+
+                const sectionTitle = document.createElement("h3");
+                sectionTitle.innerText = "Long Term Forecast";
+                metricsContainer.appendChild(sectionTitle);
+
+                Object.entries(value).forEach(([subKey, subValue]) => {
+
+                    const p = document.createElement("p");
+                    let formattedValue = subValue;
+
+                    if (Array.isArray(subValue)) {
+                        if (subKey.includes("confidence_interval")) {
+                            formattedValue = `$${subValue[0].toFixed(2)} - $${subValue[1].toFixed(2)}`;
+                        } else {
+                            formattedValue = subValue.map(v =>
+                                typeof v === "number" ? v.toFixed(4) : v
+                            ).join(", ");
+                        }
+                    }
+
+                    if (typeof subValue === "number") {
+                        formattedValue = subValue.toFixed(4);
+                    }
+
+                    if (subKey.includes("price") && typeof subValue === "number") {
+                        formattedValue = "$" + subValue.toFixed(2);
+                    }
+
+                    const prettyKey = subKey
+                        .replace(/_/g, " ")
+                        .replace(/\b\w/g, l => l.toUpperCase());
+
+                    p.innerHTML = `<strong>${prettyKey}:</strong> ${formattedValue}`;
+                    metricsContainer.appendChild(p);
+                });
+
+                return;
+            }
+
+            const p = document.createElement("p");
+            let formattedValue = value;
+
+            if (typeof value === "number") {
+                formattedValue = Number.isInteger(value)
+                    ? value
+                    : value.toFixed(4);
+            }
+
+            if (key.toLowerCase().includes("accuracy")) {
+                formattedValue = (value * 100).toFixed(2) + "%";
+            }
+
+            if (key.toLowerCase().includes("price")) {
+                formattedValue = "$" + parseFloat(value).toFixed(2);
+            }
+
+            const prettyKey = key
+                .replace(/_/g, " ")
+                .replace(/\b\w/g, l => l.toUpperCase());
+
+            p.innerHTML = `<strong>${prettyKey}:</strong> ${formattedValue}`;
+            metricsContainer.appendChild(p);
+        });
+
+        // ----------------------------
+        // ROC Chart Rendering
+        // ----------------------------
         if (data.roc_curve && data.roc_curve.fpr && data.roc_curve.tpr) {
-            const fpr = data.roc_curve.fpr;
-            const tpr = data.roc_curve.tpr;
-            const auc = data.roc_curve.auc;
 
-            document.getElementById("roc_auc").textContent = auc.toFixed(3);
+            const chartTitle = document.createElement("h3");
+            chartTitle.innerText = "ROC Curve";
+            chartsContainer.appendChild(chartTitle);
 
-            const ctx = document.getElementById("rocChart").getContext("2d");
+            const canvas = document.createElement("canvas");
+            chartsContainer.appendChild(canvas);
+
+            const aucText = document.createElement("p");
+            aucText.innerHTML = `<strong>AUC:</strong> ${data.roc_curve.auc.toFixed(3)}`;
+            chartsContainer.appendChild(aucText);
 
             if (rocChartInstance) {
                 rocChartInstance.destroy();
             }
 
-            rocChartInstance = new Chart(ctx, {
+            rocChartInstance = new Chart(canvas.getContext("2d"), {
                 type: "line",
                 data: {
-                    labels: fpr,
+                    labels: data.roc_curve.fpr,
                     datasets: [
                         {
                             label: "ROC Curve",
-                            data: tpr,
+                            data: data.roc_curve.tpr,
                             borderWidth: 2,
                             tension: 0.25,
                             fill: false
                         },
                         {
                             label: "Random",
-                            data: fpr,
+                            data: data.roc_curve.fpr,
                             borderDash: [5,5],
                             borderWidth: 1
                         }
@@ -145,15 +218,13 @@ document.getElementById("stockForm").addEventListener("submit", async function(e
             });
         }
 
-        
+        results.style.display = "block";
+
     } catch (error) {
         loading.style.display = "none";
-        errorMsg.textContent = "Failed to fetch data. Check your connection.";
+        errorMsg.textContent = "Failed to fetch data.";
     }
-
 });
 </script>
 </body>
 {% endblock %}
-
-
